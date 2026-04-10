@@ -1,67 +1,81 @@
 import time
 import pandas as pd
+import re
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 
-# Setup Chrome driver (UPDATED)
+# Setup driver
 service = Service(ChromeDriverManager().install())
 driver = webdriver.Chrome(service=service)
 
-# Store all data
-all_data = []
+data = []
 
-# Loop through multiple pages
-for page in range(1, 6):  # scrape 5 pages
+for page in range(1, 6):
     url = f"https://www.magicbricks.com/property-for-sale/residential-real-estate?cityName=Bhopal&page={page}"
-    
     driver.get(url)
-    time.sleep(6)  # wait for page to fully load
+    time.sleep(6)
 
-    # Scroll down (IMPORTANT for dynamic loading)
-    driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-    time.sleep(3)
-
-    # Get all property cards
     properties = driver.find_elements(By.CLASS_NAME, "mb-srp__card")
 
     for prop in properties:
         try:
-            # Title (contains BHK + location)
             title = prop.find_element(By.CLASS_NAME, "mb-srp__card--title").text
-            
-            # Price
-            price = prop.find_element(By.CLASS_NAME, "mb-srp__card__price").text
-            
-            # Area / extra details
-            try:
-                area = prop.find_element(By.CLASS_NAME, "mb-srp__card__summary").text
-            except:
-                area = "NA"
+            price_text = prop.find_element(By.CLASS_NAME, "mb-srp__card__price").text
+            area_info = prop.find_element(By.CLASS_NAME, "mb-srp__card__summary").text
 
-            # Save data
-            all_data.append({
-                "title": title,
+            # 🔹 Extract BHK
+            bhk_match = re.search(r'(\d+)\s*BHK', title)
+            bhk = int(bhk_match.group(1)) if bhk_match else None
+
+            # 🔹 Extract Price
+            price_clean = price_text.replace("₹", "").split("\n")[1].strip()
+            if "Lac" in price_clean:
+                price = float(price_clean.replace("Lac", "")) * 100000
+            elif "Cr" in price_clean:
+                price = float(price_clean.replace("Cr", "")) * 10000000
+            else:
+                price = None
+
+            # 🔹 Extract Area
+            area_match = re.search(r'(\d+)', area_info)
+            area = int(area_match.group(1)) if area_match else None
+
+            # 🔹 Extract Location (from title)
+            location = title.split("in")[-1].strip()
+
+            # 🔹 Extract Status
+            if "Ready to Move" in area_info:
+                status = "Ready to Move"
+            elif "Under Construction" in area_info:
+                status = "Under Construction"
+            else:
+                status = "Unknown"
+
+            data.append({
+                "bhk": bhk,
                 "price": price,
-                "area_info": area
+                "area": area,
+                "location": location,
+                "status": status
             })
 
         except:
             continue
 
-    print(f"✅ Page {page} scraped successfully")
-    time.sleep(2)
+    print(f"Page {page} scraped")
 
-# Close browser
 driver.quit()
 
-# Convert to DataFrame
-df = pd.DataFrame(all_data)
+# Create DataFrame
+df = pd.DataFrame(data)
 
-# Save to CSV
-df.to_csv("housing_data.csv", index=False)
+# Drop nulls
+df = df.dropna()
 
-print("\n🎉 Scraping Completed!")
-print(f"Total records collected: {len(df)}")
+# Save CSV
+df.to_csv("clean_housing_data.csv", index=False)
+
+print("✅ Clean dataset saved!")
 print(df.head())
